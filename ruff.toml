@@ -6,10 +6,10 @@
 [lint]
 # Keep ruff's (0.16) defaults, minus:
 #
-# BLE001 (blind `except Exception`): every flagged site is a process
-# boundary that converts *any* failure into an HTTP error response
-# (cockpit handlers), a CLI error message (sesh commands), or a k8s
-# event retry (operator) — catching narrowly there would turn user-facing
-# errors into tracebacks. Blind catches anywhere else still deserve a
-# review comment, but the linter can't tell the difference.
+# BLE001 (blind `except Exception`): every flagged site is a reconciliation
+# boundary that converts *any* failure into a Sandbox status condition the
+# user can read. Catching narrowly there would turn a legible
+# reason=VaultSetupFailed into an operator traceback nobody sees. Blind
+# catches anywhere else still deserve a review comment, but the linter
+# cannot tell the difference.
 ignore = ["BLE001"]
