@@ -1,0 +1,26 @@
+# Tailscale Ingress: publishes the gateway on the tailnet as
+# https://sandboxes.<your-tailnet>.ts.net with a Tailscale-issued cert.
+#
+# There is no public listener anywhere in this example — off the tailnet,
+# the service does not exist. That is the outer of the two gates.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sandboxes-tailnet
+  namespace: sandboxes
+  annotations:
+    tailscale.com/http-redirect: "true"
+spec:
+  ingressClassName: tailscale
+  defaultBackend:
+    service:
+      # The Service Envoy Gateway generates for the Gateway above. Confirm the
+      # exact name with:
+      #   kubectl -n sandboxes get svc -l gateway.envoyproxy.io/owning-gateway-name=sandbox-gateway
+      name: envoy-sandboxes-sandbox-gateway
+      port:
+        number: 8080
+  tls:
+    - hosts:
+        # Becomes sandboxes.<your-tailnet>.ts.net via MagicDNS.
+        - sandboxes

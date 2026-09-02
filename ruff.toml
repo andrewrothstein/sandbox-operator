@@ -1,0 +1,15 @@
+# Repo-wide ruff config (sessions ruff-debt fix). Written when CI came back
+# to life (2026-08-11) and an unpinned `pip install ruff` picked up 0.16's
+# expanded default ruleset. Rules live here, the version pin lives in
+# .github/workflows/ci.yaml — bump both deliberately, together.
+
+[lint]
+# Keep ruff's (0.16) defaults, minus:
+#
+# BLE001 (blind `except Exception`): every flagged site is a process
+# boundary that converts *any* failure into an HTTP error response
+# (cockpit handlers), a CLI error message (sesh commands), or a k8s
+# event retry (operator) — catching narrowly there would turn user-facing
+# errors into tracebacks. Blind catches anywhere else still deserve a
+# review comment, but the linter can't tell the difference.
+ignore = ["BLE001"]

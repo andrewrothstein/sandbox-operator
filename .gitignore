@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.ruff_cache/
+
+# Helm
+charts/**/charts/
+*.tgz
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Local kube artifacts
+kubeconfig
+*.kubeconfig
+.venv-verify/

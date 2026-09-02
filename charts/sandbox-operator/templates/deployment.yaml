@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sandbox-operator
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/component: operator
+    app.kubernetes.io/part-of: sandboxes
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: operator
+      app.kubernetes.io/part-of: sandboxes
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: operator
+        app.kubernetes.io/part-of: sandboxes
+    spec:
+      serviceAccountName: sandbox-operator
+      {{- with .Values.imagePullSecret }}
+      imagePullSecrets:
+        - name: {{ . }}
+      {{- end }}
+      containers:
+        - name: operator
+          image: {{ .Values.image.registry }}/{{ .Values.image.operator }}:{{ .Values.image.tag | default (printf "v%s" .Chart.AppVersion) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: SANDBOX_RUNTIME_IMAGE
+              value: {{ .Values.image.registry }}/{{ .Values.image.sandbox }}:{{ .Values.image.tag | default (printf "v%s" .Chart.AppVersion) }}
+            {{- with .Values.observability.llmGatewayUrl }}
+            - name: SANDBOX_LLM_GATEWAY_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.observability.otelEndpoint }}
+            - name: SANDBOX_OTEL_ENDPOINT
+              value: {{ . | quote }}
+            {{- end }}
+            - name: SANDBOX_NAMESPACE
+              value: {{ .Values.namespace | quote }}
+            - name: VAULT_ADDR
+              valueFrom:
+                configMapKeyRef:
+                  name: sandbox-vault-config
+                  key: vault-addr
+                  optional: true
+            - name: SANDBOX_VAULT_ENABLED
+              value: {{ .Values.vaultEnabled | quote }}
+            - name: SANDBOX_STORAGE_CLASS
+              value: {{ .Values.storageClass | quote }}
+            - name: SANDBOX_IMAGE_PULL_SECRETS
+              value: {{ .Values.imagePullSecret | quote }}
+            - name: SANDBOX_KNOWLEDGE_VAULT_ENABLED
+              value: {{ .Values.knowledgeVault.enabled | quote }}
+            - name: SANDBOX_KNOWLEDGE_VAULT_REPO
+              value: {{ .Values.knowledgeVault.repo | default "" | quote }}
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi

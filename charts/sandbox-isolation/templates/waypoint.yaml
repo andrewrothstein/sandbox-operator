@@ -1,0 +1,23 @@
+# Waypoint proxy — L7 policy enforcement for ambient mesh.
+#
+# In ambient mode, ztunnel handles L4 (mTLS, connection-level auth).
+# A waypoint proxy handles L7 (HTTP routing, AuthorizationPolicy).
+# Deploy one per namespace for sandbox pods.
+#
+# ServiceEntries + REGISTRY_ONLY on the mesh config still control
+# which external hosts are reachable. The waypoint enforces L7 policies
+# on top of that.
+
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: sandbox-waypoint
+  namespace: {{ .Values.namespace }}
+  labels:
+    istio.io/waypoint-for: service
+spec:
+  gatewayClassName: istio-waypoint
+  listeners:
+    - name: mesh
+      port: 15008
+      protocol: HBONE

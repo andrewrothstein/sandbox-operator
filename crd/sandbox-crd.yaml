@@ -1,0 +1,386 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: sandboxes.sandboxes.dev
+spec:
+  group: sandboxes.dev
+  names:
+    kind: Sandbox
+    listKind: SandboxList
+    plural: sandboxes
+    singular: sandbox
+    shortNames: [sbx]
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [user]
+              properties:
+                user:
+                  type: string
+                  description: Owner identity (maps to Vault identity and PVC)
+                mode:
+                  type: string
+                  enum: [interactive, headless]
+                  default: interactive
+                harness:
+                  type: string
+                  enum: [claude-code, pi, antigravity, codex, opencode]
+                  default: claude-code
+                  description: |
+                    Which agent CLI the sandbox launches. The runtime image
+                    you supply must actually contain it — see
+                    docs/runtime-image.md. In interactive mode it is what tmux
+                    auto-starts; in headless mode it runs via that CLI's
+                    print/non-interactive mode.
+                pi:
+                  type: object
+                  description: |
+                    Pi-harness-specific config.
+                    Only consulted when spec.harness=pi.
+                  properties:
+                    oauthSecret:
+                      type: object
+                      description: |
+                        K8s Secret + key holding a pre-acquired Pi OAuth
+                        auth.json (the file Pi writes to ~/.pi/agent/auth.json
+                        after `pi /login`). The operator mounts it at
+                        /vault/secrets/pi-auth.json (0400, readonly); the
+                        entrypoint copies it to ~/.pi/agent/auth.json with
+                        0600 on sandbox start. Used for headless agents that
+                        can't run interactive /login. Interactive sandboxes
+                        get the same effect by running `pi /login` once and
+                        relying on the per-user pi-state PVC.
+                      properties:
+                        name:
+                          type: string
+                        key:
+                          type: string
+                          default: auth.json
+                    tokenSecret:
+                      type: object
+                      description: |
+                        K8s Secret + key holding a provider API key. The
+                        operator threads it into the pod as an env var named
+                        by `envVar` (default ANTHROPIC_API_KEY). Pi reads
+                        whatever provider env it's configured for. Without
+                        this, the sandbox starts with no API key and the user
+                        must `pi /login` interactively.
+                      properties:
+                        name:
+                          type: string
+                        key:
+                          type: string
+                          default: api-key
+                        envVar:
+                          type: string
+                          default: ANTHROPIC_API_KEY
+                          description: |
+                            Env var name to surface inside the pod. Pick the
+                            provider Pi is using (ANTHROPIC_API_KEY,
+                            OPENAI_API_KEY, GOOGLE_API_KEY, GROQ_API_KEY,
+                            XAI_API_KEY, MISTRAL_API_KEY, CEREBRAS_API_KEY,
+                            OPENROUTER_API_KEY, etc.).
+                workingDir:
+                  type: object
+                  description: |
+                    Three mutually-exclusive modes:
+                      - `gitRepo` (+ optional `gitRef`, `tokenSecret`): clone
+                        a repo into the workdir at sandbox start. Suits headless
+                        / fleet work.
+                      - `existingPVC`: reuse a pre-provisioned PVC. Suits
+                        long-lived sandboxes that need persistent state across
+                        pod restarts.
+                      - `hostPath`: bind-mount a host directory into the
+                        sandbox pod at /home/agent/work. The user-persona
+                        quickstart path — edits in the sandbox are visible on
+                        the host immediately. Requires the cluster node to
+                        actually see the host directory (e.g. k3d cluster
+                        created with `--volume "$PWD:$PWD"`). NOTE: hostPath
+                        does NOT get fsGroup-chowned by the kubelet, so the
+                        host directory must be readable+writable by the
+                        sandbox's runAsUser (UID 1001 by default).
+                    If none are set, the workdir is an empty emptyDir.
+                  properties:
+                    gitRepo:
+                      type: string
+                    gitRef:
+                      type: string
+                      default: main
+                    existingPVC:
+                      type: string
+                      description: Use an existing PVC for the working directory
+                    hostPath:
+                      type: string
+                      description: |
+                        Absolute host path bind-mounted into the sandbox pod
+                        as the working directory. User-persona quickstart only;
+                        not safe for multi-tenant or remote clusters.
+                    tokenSecret:
+                      type: object
+                      description: |
+                        K8s Secret holding a git token (PAT) that authenticates
+                        clone + push against `gitRepo`. When set, the entrypoint
+                        writes ~/.netrc (0600) for github.com using
+                        `oauth2:<token>` before the workdir clone runs, so both
+                        the initial clone and subsequent pushes work without
+                        embedding credentials in the URL.
+                      properties:
+                        name:
+                          type: string
+                        key:
+                          type: string
+                          default: token
+                resources:
+                  type: object
+                  properties:
+                    cpu:
+                      type: string
+                      default: "1"
+                    memory:
+                      type: string
+                      default: 1Gi
+                vault:
+                  type: object
+                  description: HashiCorp Vault — secret injection for credentials
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: true
+                    secretPath:
+                      type: string
+                      description: "Vault KV path (default: secret/data/sandboxes/{user}/claude-auth)"
+                    role:
+                      type: string
+                      description: Vault K8s auth role override
+                userCreds:
+                  type: object
+                  description: |
+                    User-persona cred handoff. Set `secretName` to a single
+                    K8s Secret containing both `credentials.json` (claude OAuth)
+                    and optionally `pi-auth.json` (pi OAuth). The operator
+                    mounts the Secret at /vault/secrets, bypassing both the
+                    vault flow and the per-harness fallback branches. Built
+                    on the host by `task user:creds:sync` from
+                    ~/.claude/.credentials.json and ~/.pi/agent/auth.json.
+                  properties:
+                    secretName:
+                      type: string
+                knowledgeVault:
+                  type: object
+                  description: |
+                    Obsidian-compatible markdown vault — shared knowledge base for
+                    sandboxes, agents, and humans. An init container shallow-clones
+                    the named git repo (sparse-checkout to `subdir`) into a shared
+                    emptyDir; the main container sees the vault at ~/vault.
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: true
+                    repo:
+                      type: string
+                      description: Git repo URL containing the vault (default operator-wide)
+                    ref:
+                      type: string
+                      description: Git ref to clone (default main)
+                    subdir:
+                      type: string
+                      description: Subdirectory within the repo holding the vault (default `vault`)
+                    tokenSecret:
+                      type: object
+                      description: |
+                        Optional: K8s Secret + key holding a git auth token (e.g. a GitHub PAT
+                        with `repo` scope). The init container injects it via .netrc so the
+                        clone works against private repos.
+                      properties:
+                        name:
+                          type: string
+                        key:
+                          type: string
+                          default: token
+                    writeBack:
+                      type: object
+                      description: |
+                        Auto-commit + push agent vault edits via a Kubernetes-native sidecar
+                        (init container with restartPolicy=Always). Loops every
+                        `intervalSeconds`, commits any changes, pushes to `ref`, rebases on
+                        push rejection. Requires `tokenSecret` (or operator-wide default).
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        intervalSeconds:
+                          type: integer
+                          default: 60
+                ttl:
+                  type: string
+                  default: "8h"
+                  description: Max sandbox lifetime (Go duration)
+                headless:
+                  type: object
+                  description: Configuration for headless (autonomous agent) mode
+                  properties:
+                    prompt:
+                      type: string
+                    epic:
+                      type: string
+                    role:
+                      type: string
+                      enum: [worker, witness, vault-curator]
+                      default: worker
+                mcp:
+                  type: object
+                  description: |
+                    Opt-in MCP servers (Tier 2/3). Tier 1 (vault, workdir,
+                    git, bd) is always on; this block enables additional
+                    servers per sandbox. Reuses cluster-wide token secrets
+                    where applicable.
+                  properties:
+                    github:
+                      type: object
+                      properties:
+                        enabled: { type: boolean, default: false }
+                        tokenSecret:
+                          type: object
+                          properties:
+                            name: { type: string }
+                            key: { type: string, default: token }
+                    fetch:
+                      type: object
+                      properties:
+                        enabled: { type: boolean, default: false }
+                    browser:
+                      type: object
+                      properties:
+                        enabled: { type: boolean, default: false }
+                        kind:
+                          type: string
+                          enum: [playwright]
+                          default: playwright
+                    memory:
+                      type: object
+                      properties:
+                        enabled: { type: boolean, default: false }
+                    sqlite:
+                      type: object
+                      properties:
+                        enabled: { type: boolean, default: false }
+                        path:
+                          type: string
+                          default: /home/agent/.claude/scratch.sqlite
+                    worktree:
+                      type: object
+                      description: Fleet-only — worktree-per-issue tool surface for headless workers/witnesses/curators.
+                      properties:
+                        enabled: { type: boolean, default: false }
+                        root:
+                          type: string
+                          description: Worktree root dir (defaults to $AGENT_REPO/.worktrees)
+                    kubernetes:
+                      type: object
+                      description: |
+                        Fleet-only — read-only k8s introspection for witness + curator.
+                        Backed by the local k8s-mcp shim which wraps
+                        kubectl with an explicit allowlist (get/list/describe/logs/
+                        events/top/api-resources/version) and denies the secret kind
+                        at tool entry. No write verbs are exposed.
+                      properties:
+                        enabled: { type: boolean, default: false }
+                        kubeconfig:
+                          type: string
+                          description: |
+                            Path to kubeconfig inside the pod. If unset, kubectl uses
+                            the default in-cluster ServiceAccount auth.
+                        context:
+                          type: string
+                          description: |
+                            kubeconfig context name to pin every kubectl invocation to.
+                            Prevents a misconfigured current-context from redirecting
+                            calls to the wrong cluster.
+                    gitnexus:
+                      type: object
+                      description: |
+                        Code-graph MCP server (deps, call chains, blast radius)
+                        from abhigyanpatwari/GitNexus. **Only the `mcp` subcommand is
+                        registered** — never `analyze` or `setup`, which would
+                        auto-edit CLAUDE.md/AGENTS.md and install hooks.
+                      properties:
+                        enabled: { type: boolean, default: false }
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: [Pending, Provisioning, Running, Terminating, Failed, Expired]
+                podName:
+                  type: string
+                serviceName:
+                  type: string
+                ttydPort:
+                  type: integer
+                connectURL:
+                  type: string
+                startedAt:
+                  type: string
+                  format: date-time
+                expiresAt:
+                  type: string
+                  format: date-time
+                message:
+                  type: string
+                # Flat reason mirroring the Ready condition's reason — pinpoints
+                # WHICH stage failed (PodCreationFailed, VaultSetupFailed,
+                # PodFailed, …) without parsing conditions. Drives a printer
+                # column and the cockpit detail pane.
+                reason:
+                  type: string
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: User
+          type: string
+          jsonPath: .spec.user
+        - name: Mode
+          type: string
+          jsonPath: .spec.mode
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Reason
+          type: string
+          jsonPath: .status.reason
+          priority: 1
+        - name: URL
+          type: string
+          jsonPath: .status.connectURL
+          priority: 1
+        - name: Expires
+          type: string
+          jsonPath: .status.expiresAt
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp

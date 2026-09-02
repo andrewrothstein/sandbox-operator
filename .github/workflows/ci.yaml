@@ -1,0 +1,72 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .[dev]
+      - run: ruff check sandbox_operator/
+      - name: Import the operator module
+        run: python -c "import sandbox_operator.main"
+
+  charts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - run: helm lint charts/sandbox-operator charts/sandbox-isolation
+      - run: helm template t charts/sandbox-operator > /dev/null
+      - run: helm template t charts/sandbox-isolation > /dev/null
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+      - uses: AbsaOSS/k3d-action@v2
+        with:
+          cluster-name: ci
+      - name: Install CRD and namespace
+        run: |
+          kubectl create namespace sandboxes
+          kubectl apply -f crd/sandbox-crd.yaml
+      - name: Examples validate against the real schema
+        run: kubectl apply --dry-run=server -f examples/sandbox.yaml
+      - name: Operator reconciles a Sandbox
+        env:
+          SANDBOX_VAULT_ENABLED: "false"
+          SANDBOX_NAMESPACE: sandboxes
+          SANDBOX_RUNTIME_IMAGE: busybox:latest
+          SANDBOX_STORAGE_CLASS: local-path
+        run: |
+          kopf run -m sandbox_operator.main --namespace sandboxes > kopf.log 2>&1 &
+          for i in $(seq 1 30); do
+            grep -q "Initial authentication has finished" kopf.log && break; sleep 2
+          done
+          kubectl apply -f examples/sandbox.yaml
+          # The pod never becomes Ready (busybox is not a runtime image); what
+          # this asserts is that the operator creates the sub-resources and
+          # does not fail — including the per-user PVC both sandboxes race for.
+          for i in $(seq 1 20); do
+            kubectl -n sandboxes get pod sandbox-refactor-auth >/dev/null 2>&1 && break; sleep 3
+          done
+          kubectl -n sandboxes get pod sandbox-refactor-auth
+          kubectl -n sandboxes get pod sandbox-nightly-audit
+          kubectl -n sandboxes get svc sandbox-refactor-auth
+          kubectl -n sandboxes get pvc sandbox-state-alice
+          kubectl -n sandboxes get sa sandbox-refactor-auth
+          if grep -q "CreationFailed" kopf.log; then
+            echo "::error::operator reported a CreationFailed"; grep CreationFailed kopf.log; exit 1
+          fi

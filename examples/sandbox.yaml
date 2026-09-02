@@ -1,0 +1,34 @@
+# A minimal interactive sandbox.
+#
+#   kubectl apply -f examples/sandbox.yaml
+#   kubectl get sandbox refactor-auth
+#   kubectl port-forward svc/sandbox-refactor-auth 7681:7681
+#
+# `user` is the important field: it selects the state PVC and the Vault scope,
+# so it must come from your authenticated edge, never from client input.
+apiVersion: sandboxes.dev/v1alpha1
+kind: Sandbox
+metadata:
+  name: refactor-auth
+  namespace: sandboxes
+spec:
+  user: alice
+  harness: claude-code
+  mode: interactive
+  ttl: 4h
+---
+# A headless sandbox that clones a repo and works in it. No terminal is
+# served; the harness runs to completion and the pod exits.
+apiVersion: sandboxes.dev/v1alpha1
+kind: Sandbox
+metadata:
+  name: nightly-audit
+  namespace: sandboxes
+spec:
+  user: alice
+  harness: claude-code
+  mode: headless
+  ttl: 1h
+  workingDir:
+    gitRepo: https://github.com/example/repo.git
+    gitRef: main

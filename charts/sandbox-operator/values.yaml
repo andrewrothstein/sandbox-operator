@@ -1,0 +1,46 @@
+# sandbox-operator chart values.
+
+image:
+  # Registry holding both the operator image and the sandbox runtime image.
+  registry: ghcr.io/andrewrothstein
+  operator: sandbox-operator
+  # The runtime image every Sandbox pod runs. NOT provided by this chart —
+  # see docs/runtime-image.md for the contract it must satisfy.
+  sandbox: sandbox-runtime
+  # Empty -> chart appVersion. Pin explicitly in production.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Namespace the operator watches, and in which it creates Sandbox pods.
+namespace: sandboxes
+
+# Name of a docker-registry Secret used to pull the images above. Applied to
+# the operator pod and to every sandbox pod it spawns. Empty = anonymous pulls.
+imagePullSecret: ""
+
+# StorageClass for per-user state PVCs (agent config, credentials, history).
+# Choose a snapshot-capable class if you want VolumeSnapshot-based recovery;
+# `local-path` (the k3d/k3s default) is not snapshot-capable.
+storageClass: local-path
+
+# HashiCorp Vault integration: when enabled, the operator provisions a
+# per-sandbox Vault policy and Kubernetes-auth role so each sandbox can read
+# only its own user's secrets. Leave off if you deliver credentials another
+# way (plain Secret, External Secrets, VSO). See docs/credentials.md.
+vaultEnabled: false
+
+# Knowledge vault — when enabled AND given a repo, sandbox pods get an init
+# container that shallow-clones that git repo into ~/.vault-repo so the agent
+# starts with shared context. `repo` has no default on purpose: a baked-in URL
+# would clone someone else's notes into every sandbox. Empty repo = feature
+# off, so `enabled: true` is a permission, not an obligation. Per-sandbox
+# overrides via spec.knowledgeVault win in either direction.
+knowledgeVault:
+  enabled: true
+  repo: ""
+
+# Optional: route harness LLM traffic through a gateway, and export agent
+# telemetry over OTLP. Empty = off. See docs/observability.md.
+observability:
+  llmGatewayUrl: ""
+  otelEndpoint: ""

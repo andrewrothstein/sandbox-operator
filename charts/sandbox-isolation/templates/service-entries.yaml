@@ -1,0 +1,56 @@
+{{/*
+Istio ServiceEntries — the egress allow-list, one entry per permitted host.
+
+These only *admit* destinations. What makes them an allow-list is istiod's
+meshConfig.outboundTrafficPolicy.mode=REGISTRY_ONLY: with it, a host absent
+from the registry is refused at the proxy, so an agent cannot reach an
+arbitrary address even if it resolves. Without that mode these entries add
+routes and block nothing — see docs/isolation.md.
+
+Hosts come from .Values.egress.groups (each group individually enabled) plus
+.Values.egress.extraHosts.
+*/}}
+{{- range $group, $cfg := .Values.egress.groups }}
+{{- if $cfg.enabled }}
+{{- range $host := $cfg.hosts }}
+---
+apiVersion: networking.istio.io/v1
+kind: ServiceEntry
+metadata:
+  name: egress-{{ $host | replace "." "-" }}
+  namespace: {{ $.Values.namespace }}
+  labels:
+    app.kubernetes.io/part-of: sandboxes
+    sandboxes.dev/egress-group: {{ $group }}
+spec:
+  hosts:
+    - {{ $host }}
+  location: MESH_EXTERNAL
+  ports:
+    - number: 443
+      name: https
+      protocol: TLS
+  resolution: DNS
+{{- end }}
+{{- end }}
+{{- end }}
+{{- range $host := .Values.egress.extraHosts }}
+---
+apiVersion: networking.istio.io/v1
+kind: ServiceEntry
+metadata:
+  name: egress-{{ $host | replace "." "-" }}
+  namespace: {{ $.Values.namespace }}
+  labels:
+    app.kubernetes.io/part-of: sandboxes
+    sandboxes.dev/egress-group: extra
+spec:
+  hosts:
+    - {{ $host }}
+  location: MESH_EXTERNAL
+  ports:
+    - number: 443
+      name: https
+      protocol: TLS
+  resolution: DNS
+{{- end }}

@@ -1,0 +1,14 @@
+# PeerAuthentication — enforce mTLS for all traffic in the sandboxes namespace.
+#
+# In ambient mode, ztunnel handles mTLS transparently at the node level.
+# STRICT mode ensures all pod-to-pod traffic is encrypted — no plaintext
+# fallback even if a pod isn't enrolled in the mesh.
+
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: sandbox-strict-mtls
+  namespace: {{ .Values.namespace }}
+spec:
+  mtls:
+    mode: STRICT

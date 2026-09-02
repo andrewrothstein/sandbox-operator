@@ -1,0 +1,83 @@
+{{/*
+Portable NetworkPolicy — the coarse layer of the sandbox boundary.
+
+Deliberate division of labour (docs/isolation.md):
+  * NetworkPolicy (here) works on every CNI but only understands IPs and
+    ports. It closes the pod off by default, permits exactly the ingress
+    path, and lets 443 out.
+  * Istio ServiceEntries + REGISTRY_ONLY decide WHICH hostnames that 443 may
+    reach. NetworkPolicy cannot express FQDNs, so do not read the 443 rule
+    below as "the agent may call anything" — unless you skipped the mesh, in
+    which case it is exactly that.
+
+A Cilium cluster can add FQDN-aware CiliumNetworkPolicy for defence in depth;
+this chart ships none rather than ship one it cannot test.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sandbox-default-deny
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/part-of: sandboxes
+spec:
+  # Every pod the operator creates carries this label.
+  podSelector:
+    matchExpressions:
+      - key: sandboxes.dev/name
+        operator: Exists
+  policyTypes: [Ingress, Egress]
+
+  ingress:
+    # The only way in: the ingress gateway reaching ttyd. Sandboxes never
+    # accept traffic from each other — that is the point of the exercise.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.ingressGatewayNamespace }}
+      ports:
+        - protocol: TCP
+          port: 7681
+
+  egress:
+    # DNS. Without it nothing resolves, including the allow-listed hosts.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # Istio control plane: waypoint and ztunnel need istiod for certificates
+    # and config, or mTLS fails closed and nothing works.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: istio-system
+      ports:
+        - protocol: TCP
+          port: 15012
+        - protocol: TCP
+          port: 15010
+        - protocol: TCP
+          port: 15008
+
+    {{- with .Values.vaultNamespace }}
+    # Vault, when the operator brokers per-sandbox credentials through it.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . }}
+      ports:
+        - protocol: TCP
+          port: 8200
+    {{- end }}
+
+    # Outbound TLS. The mesh registry decides which hostnames this reaches;
+    # read the header comment before loosening or removing it.
+    - ports:
+        - protocol: TCP
+          port: 443
