@@ -9,10 +9,10 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: "3.13"
       - run: pip install -e .[dev]
       - run: ruff check sandbox_operator/
       - name: Import the operator module
@@ -21,8 +21,8 @@ jobs:
   charts:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: azure/setup-helm@v4
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v5
       - run: helm lint charts/sandbox-operator charts/sandbox-isolation
       - run: helm template t charts/sandbox-operator > /dev/null
       - run: helm template t charts/sandbox-isolation > /dev/null
@@ -30,14 +30,20 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: "3.13"
       - run: pip install -e .
-      - uses: AbsaOSS/k3d-action@v2
-        with:
-          cluster-name: ci
+      # Installed directly rather than via a third-party action: the action
+      # pins an old k3d whose install URL now 404s, and this is one command.
+      - name: Install k3d and create a cluster
+        env:
+          K3D_VERSION: v5.9.0
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh \
+            | TAG="$K3D_VERSION" bash
+          k3d cluster create ci --wait --timeout 180s
       - name: Install CRD and namespace
         run: |
           kubectl create namespace sandboxes
