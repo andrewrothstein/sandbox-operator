@@ -53,6 +53,25 @@ Two things that will waste your afternoon otherwise:
   `kubectl delete` hang otherwise. Clear it by hand if you get stuck:
   `kubectl patch sandbox <name> --type=merge -p '{"metadata":{"finalizers":[]}}'`
 
+## CI and action pinning
+
+Workflow actions are pinned to commit SHAs, with the human-readable version
+kept in a trailing `# ratchet:` comment. A tag can be moved to point at new
+code; a SHA cannot, so this is what stops a compromised or retagged action
+from running with our credentials.
+
+Do not hand-edit those lines — use [ratchet](https://github.com/sethvargo/ratchet),
+which reads the comments and rewrites the SHAs:
+
+```bash
+ratchet update .github/workflows/ci.yaml   # refresh SHAs for the pinned versions
+ratchet upgrade .github/workflows/ci.yaml  # move to newer versions, then re-pin
+```
+
+The k3d installer the e2e job pipes into bash is pinned the same way: by
+commit, with a `sha256sum --check` before it executes. If you bump it, update
+both the commit and the checksum.
+
 ## What a good PR looks like
 
 - **One concern.** Unrelated cleanups in the same diff make review slower, not
