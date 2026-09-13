@@ -85,19 +85,30 @@ Istio in [ambient mode](https://istio.io/latest/docs/ambient/) — the operator
 runs without it, but then "sandbox" is aspirational; see
 [docs/isolation.md](docs/isolation.md).
 
+Charts are published as OCI artifacts on each release, so no clone is needed:
+
 ```bash
 kubectl create namespace sandboxes
-kubectl apply -f crd/sandbox-crd.yaml
+kubectl apply -f https://github.com/andrewrothstein/sandbox-operator/releases/latest/download/sandbox-crd.yaml
 
-helm install sandbox-operator charts/sandbox-operator \
+helm install sandbox-operator \
+  oci://ghcr.io/andrewrothstein/charts/sandbox-operator \
   --namespace sandboxes \
-  --set image.registry=<your-registry> \
   --set image.sandbox=<your-runtime-image>
 
 # The guardrails. Read docs/isolation.md first — the defaults deny more
 # than you may expect, which is the intent.
-helm install sandbox-isolation charts/sandbox-isolation \
+helm install sandbox-isolation \
+  oci://ghcr.io/andrewrothstein/charts/sandbox-isolation \
   --namespace sandboxes
+```
+
+Or from a clone, which is the path to use if you are modifying the charts:
+
+```bash
+kubectl apply -f crd/sandbox-crd.yaml
+helm install sandbox-operator charts/sandbox-operator --namespace sandboxes
+helm install sandbox-isolation charts/sandbox-isolation --namespace sandboxes
 ```
 
 Then create a sandbox:

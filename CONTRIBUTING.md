@@ -72,6 +72,22 @@ The k3d installer the e2e job pipes into bash is pinned the same way: by
 commit, with a `sha256sum --check` before it executes. If you bump it, update
 both the commit and the checksum.
 
+## Releases
+
+`release.yaml` fires on a `v*.*.*` tag and does three things: builds and
+pushes a multi-arch operator image to GHCR, packages both charts and pushes
+them as OCI artifacts to `ghcr.io/<owner>/charts/`, and cuts a GitHub release
+with the CRD attached.
+
+Chart versions come from the tag (`helm package --version`), not from
+`Chart.yaml`, so a release cannot publish a `.tgz` whose name disagrees with
+what the push expects.
+
+One coupling worth remembering: the chart defaults `image.tag` to
+`v<appVersion>`, so the image job publishes **both** `v0.1.0` and `0.1.0`.
+Dropping the v-prefixed tag would leave every default install in
+ImagePullBackOff.
+
 ## What a good PR looks like
 
 - **One concern.** Unrelated cleanups in the same diff make review slower, not
