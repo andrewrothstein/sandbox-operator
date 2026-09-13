@@ -1,0 +1,44 @@
+# One route for the entire fleet.
+#
+# A path-PREFIX match on /sandbox/ means nothing needs reconciling as
+# sandboxes are created and expire on their TTLs. The trade-off: the route
+# cannot name a per-sandbox backend, so it forwards to a headless Service
+# that selects every sandbox pod, and the base-path each ttyd serves on
+# (SANDBOX_TTYD_BASE_PATH) keeps the sessions distinct.
+#
+# If you prefer strict backend pinning, emit one HTTPRoute per Sandbox
+# instead (name it sandbox-<name>, match /sandbox/<name>, backendRef
+# sandbox-<name>:7681) and delete it with the Sandbox.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: sandboxes
+  namespace: sandboxes
+spec:
+  parentRefs:
+    - name: sandbox-gateway
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /sandbox/
+      backendRefs:
+        - name: sandbox-fleet
+          port: 7681
+      timeouts:
+        # Terminals are long-lived streams; a short request timeout
+        # disconnects an agent that is merely thinking.
+        request: "0s"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sandbox-fleet
+  namespace: sandboxes
+spec:
+  selector:
+    app.kubernetes.io/managed-by: sandbox-operator
+  ports:
+    - name: ttyd
+      port: 7681
+      targetPort: 7681

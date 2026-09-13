@@ -1,0 +1,3 @@
+kopf>=1.37,<2
+kubernetes>=29,<31
+hvac>=2.1,<3

@@ -1,0 +1,85 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # ratchet:actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: pip install -e .[dev]
+      - run: ruff check sandbox_operator/
+      - name: Import the operator module
+        run: python -c "import sandbox_operator.main"
+
+  charts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # ratchet:azure/setup-helm@v5
+      - run: helm lint charts/sandbox-operator charts/sandbox-isolation
+      - run: helm template t charts/sandbox-operator > /dev/null
+      - run: helm template t charts/sandbox-isolation > /dev/null
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # ratchet:actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: pip install -e .
+      # Installed directly rather than via a third-party action: the action
+      # pins an old k3d whose install URL now 404s, and this is one command.
+      # The installer is pinned by commit and verified by checksum before it
+      # runs — piping a mutable `main` URL into a shell is the same
+      # supply-chain hole that pinning Actions by SHA closes.
+      - name: Install k3d and create a cluster
+        env:
+          K3D_VERSION: v5.9.0
+          K3D_INSTALL_COMMIT: 46f3480daa747ba71c155d0f619ce6aba7b95db9
+          K3D_INSTALL_SHA256: f360710b6555d7b95f510b583b7c6050c6453e5b1d91cbb046864897d5915347
+        run: |
+          curl -fsSL -o install-k3d.sh \
+            "https://raw.githubusercontent.com/k3d-io/k3d/${K3D_INSTALL_COMMIT}/install.sh"
+          echo "${K3D_INSTALL_SHA256}  install-k3d.sh" | sha256sum --check --status
+          TAG="$K3D_VERSION" bash install-k3d.sh
+          k3d cluster create ci --wait --timeout 180s
+      - name: Install CRD and namespace
+        run: |
+          kubectl create namespace sandboxes
+          kubectl apply -f crd/sandbox-crd.yaml
+      - name: Examples validate against the real schema
+        run: kubectl apply --dry-run=server -f examples/sandbox.yaml
+      - name: Operator reconciles a Sandbox
+        env:
+          SANDBOX_VAULT_ENABLED: "false"
+          SANDBOX_NAMESPACE: sandboxes
+          SANDBOX_RUNTIME_IMAGE: busybox:latest
+          SANDBOX_STORAGE_CLASS: local-path
+        run: |
+          kopf run -m sandbox_operator.main --namespace sandboxes > kopf.log 2>&1 &
+          for i in $(seq 1 30); do
+            grep -q "Initial authentication has finished" kopf.log && break; sleep 2
+          done
+          kubectl apply -f examples/sandbox.yaml
+          # The pod never becomes Ready (busybox is not a runtime image); what
+          # this asserts is that the operator creates the sub-resources and
+          # does not fail — including the per-user PVC both sandboxes race for.
+          for i in $(seq 1 20); do
+            kubectl -n sandboxes get pod sandbox-refactor-auth >/dev/null 2>&1 && break; sleep 3
+          done
+          kubectl -n sandboxes get pod sandbox-refactor-auth
+          kubectl -n sandboxes get pod sandbox-nightly-audit
+          kubectl -n sandboxes get svc sandbox-refactor-auth
+          kubectl -n sandboxes get pvc sandbox-state-alice
+          kubectl -n sandboxes get sa sandbox-refactor-auth
+          if grep -q "CreationFailed" kopf.log; then
+            echo "::error::operator reported a CreationFailed"; grep CreationFailed kopf.log; exit 1
+          fi

@@ -1,0 +1,78 @@
+# sandbox-isolation chart values.
+#
+# This chart is what turns a Sandbox pod into an actual sandbox: mTLS between
+# workloads, L7 authorization at a waypoint proxy, and a default-deny egress
+# allow-list. Read docs/isolation.md before changing anything here — several
+# of these knobs are load-bearing for the security model.
+
+# Namespace the guardrails apply to. Must match the operator's namespace.
+namespace: sandboxes
+
+# Egress allow-list. Istio ServiceEntries admit these destinations; combined
+# with istiod's meshConfig.outboundTrafficPolicy.mode=REGISTRY_ONLY, anything
+# not listed is refused. That mode is what makes this an allow-list rather
+# than decoration — without it these entries only add routes.
+#
+# Every enabled group is a hole you are deliberately opening. Enable the
+# provider your agents actually use and leave the rest off.
+egress:
+  groups:
+    anthropic:
+      enabled: true
+      hosts:
+        - api.anthropic.com          # inference
+        - claude.ai                  # subscription OAuth: authorize
+        - platform.claude.com        # subscription OAuth: token exchange
+        - downloads.claude.ai        # CLI self-update
+    openai:
+      enabled: false
+      hosts:
+        - api.openai.com
+        - auth.openai.com
+        - chatgpt.com
+    google:
+      enabled: false
+      hosts:
+        - generativelanguage.googleapis.com
+        - aiplatform.googleapis.com
+        - oauth2.googleapis.com
+        - accounts.google.com
+        - www.googleapis.com
+    github:
+      enabled: true
+      hosts:
+        - github.com
+        - api.github.com
+        - codeload.github.com
+        - raw.githubusercontent.com
+    # Package registries: off by default. An agent that cannot reach a package
+    # index cannot pull arbitrary code at runtime. Enable deliberately if your
+    # agents install dependencies inside their own projects.
+    npm:
+      enabled: false
+      hosts:
+        - registry.npmjs.org
+    pypi:
+      enabled: false
+      hosts:
+        - pypi.org
+        - files.pythonhosted.org
+
+  # Additional hostnames to admit, e.g. an internal artifact proxy.
+  # Same caveat as above: each one widens the sandbox.
+  extraHosts: []
+
+# CiliumNetworkPolicy in addition to the portable NetworkPolicy. Enable only
+# on Cilium clusters; the standard NetworkPolicy covers every other CNI, and
+# ServiceEntries handle FQDN-based egress regardless.
+cilium:
+  enabled: false
+
+# Namespace running HashiCorp Vault, when the operator's Vault integration is
+# enabled. Egress to it is permitted when set; empty omits that rule.
+vaultNamespace: ""
+
+# Namespace of the ingress gateway allowed to reach sandbox ttyd ports. This
+# is the one direction sandboxes accept traffic FROM — set it to whatever you
+# terminate ingress with. See docs/ingress.md.
+ingressGatewayNamespace: envoy-gateway-system

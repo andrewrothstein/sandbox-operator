@@ -1,0 +1,12 @@
+apiVersion: v2
+name: sandbox-operator
+version: 0.1.0
+appVersion: "0.1.0"
+description: Operator that runs coding-agent CLIs as isolated per-user Kubernetes sandboxes
+type: application
+home: https://github.com/andrewrothstein/sandbox-operator
+sources:
+  - https://github.com/andrewrothstein/sandbox-operator
+keywords: [ai, agents, sandbox, operator, claude, codex]
+maintainers:
+  - name: Andrew Rothstein

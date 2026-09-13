@@ -1,0 +1,44 @@
+# Envoy Gateway fronting every sandbox in the namespace.
+#
+# The EnvoyProxy resource forces a ClusterIP Service: on a cluster with no
+# cloud load-balancer controller the default LoadBalancer type never gets an
+# address and the Gateway stays Programmed=False forever. The Tailscale
+# Ingress (ingress.yaml) fronts this Service directly.
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: sandbox-gateway
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: sandbox-proxy-params
+  namespace: sandboxes
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyService:
+        type: ClusterIP
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: sandbox-gateway
+  namespace: sandboxes
+spec:
+  gatewayClassName: sandbox-gateway
+  infrastructure:
+    parametersRef:
+      group: gateway.envoyproxy.io
+      kind: EnvoyProxy
+      name: sandbox-proxy-params
+  listeners:
+    - name: http
+      port: 8080
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: Same

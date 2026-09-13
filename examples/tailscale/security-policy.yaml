@@ -1,0 +1,64 @@
+# OIDC at the edge, then an explicit allow-list.
+#
+# Two distinct jobs, deliberately separated:
+#   1. oidc      — establishes WHO you are (302 to the IdP, cookie on return)
+#   2. authorization — decides whether that person may have a shell
+#
+# Do not drop step 2. With a public IdP, "authenticated" can mean anyone on
+# the internet with an account; only the claim allow-list makes it yours.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: sandbox-oidc
+  namespace: sandboxes
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: sandbox-gateway
+  oidc:
+    provider:
+      issuer: REPLACE_ME_ISSUER
+    clientID: REPLACE_ME_CLIENT_ID
+    clientSecret:
+      # kubectl -n sandboxes create secret generic sandbox-oidc-client \
+      #   --from-literal=client-secret='...'
+      name: sandbox-oidc-client
+    redirectURL: "/oauth2/callback"
+    logoutPath: "/oauth2/logout"
+    scopes: [openid, email, profile]
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: sandbox-email-authz
+  namespace: sandboxes
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: sandbox-gateway
+  jwt:
+    providers:
+      - name: sandbox-oidc
+        issuer: REPLACE_ME_ISSUER
+        remoteJWKS:
+          uri: REPLACE_ME_JWKS_URI
+        claimToHeaders:
+          # Forwarded upstream so the authenticated identity is visible to
+          # whatever creates Sandboxes — use it for spec.user rather than
+          # letting a client choose its own owner.
+          - claim: email
+            header: x-user-email
+  authorization:
+    defaultAction: Deny
+    rules:
+      - name: allow-owner
+        action: Allow
+        principal:
+          jwt:
+            provider: sandbox-oidc
+            claims:
+              - name: email
+                values:
+                  - REPLACE_ME_ALLOWED_EMAIL

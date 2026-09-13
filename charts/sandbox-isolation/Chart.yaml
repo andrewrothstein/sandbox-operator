@@ -1,0 +1,12 @@
+apiVersion: v2
+name: sandbox-isolation
+version: 0.1.0
+appVersion: "0.1.0"
+description: Istio ambient-mesh and NetworkPolicy guardrails that make Sandbox pods actual sandboxes
+type: application
+home: https://github.com/andrewrothstein/sandbox-operator
+sources:
+  - https://github.com/andrewrothstein/sandbox-operator
+keywords: [istio, ambient, networkpolicy, egress, isolation]
+maintainers:
+  - name: Andrew Rothstein

@@ -1,0 +1,47 @@
+# AuthorizationPolicy — L7 enforcement via waypoint proxy.
+#
+# In ambient mode, these policies are enforced by the waypoint proxy
+# (sandbox-waypoint), not by sidecars. ztunnel handles L4 auth (mTLS);
+# the waypoint handles L7 (HTTP methods, paths, headers).
+#
+# targetRef points to the waypoint for this namespace.
+
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: sandbox-deny-plaintext-egress
+  namespace: {{ .Values.namespace }}
+spec:
+  targetRefs:
+    - kind: Gateway
+      group: gateway.networking.k8s.io
+      name: sandbox-waypoint
+  action: DENY
+  rules:
+    # Block plain HTTP to external hosts
+    - to:
+        - operation:
+            ports: ["80"]
+            notHosts:
+              - "sandbox-*.{{ .Values.namespace }}.svc.cluster.local"
+---
+# Allow ttyd ingress from Envoy Gateway
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: sandbox-allow-ttyd
+  namespace: {{ .Values.namespace }}
+spec:
+  targetRefs:
+    - kind: Gateway
+      group: gateway.networking.k8s.io
+      name: sandbox-waypoint
+  action: ALLOW
+  rules:
+    - to:
+        - operation:
+            ports: ["7681"]
+    # Also allow Envoy Gateway health checks
+    - from:
+        - source:
+            namespaces: ["{{ .Values.ingressGatewayNamespace }}"]
